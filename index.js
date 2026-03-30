@@ -13,88 +13,121 @@ const PORT = process.env.PORT || 3000;
 const API_KEY = "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";
 const PHONE_NUMBER = "8801965064030";
 
-// ওয়েব ইন্টারফেস
+// --- লাইভ টার্মিনাল পেজ ---
 app.get("/", (req, res) => {
     res.send(`
         <html>
-        <head><title>Terminal</title><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;} #logs{height:70vh;overflow-y:auto;border:1px solid #333;padding:10px;background:#111;word-break:break-all;}</style></head>
+        <head>
+            <title>AI Agent Terminal</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }
+                #terminal { height: 75vh; overflow-y: auto; border: 1px dashed #333; padding: 10px; background: #050505; font-size: 13px; }
+                .code-box { background: #1a1a1a; border: 2px solid #0f0; padding: 20px; margin-top: 15px; text-align: center; }
+                .pairing-code { font-size: 32px; color: #fff; letter-spacing: 5px; font-weight: bold; }
+                .btn { background: #0f0; color: #000; border: none; padding: 10px 20px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+                .status { color: #888; font-style: italic; }
+            </style>
+        </head>
         <body>
-            <h3>🚀 AI Agent Terminal (Live)</h3>
-            <div id="logs">অপেক্ষা করুন, সেশন শুরু হচ্ছে...</div>
+            <h3>🚀 System Live Dashboard</h3>
+            <div id="terminal">Initializing system logs...</div>
+            <div id="pairing-section"></div>
+
             <script src="/socket.io/socket.io.js"></script>
             <script>
                 const socket = io();
-                const logDiv = document.getElementById('logs');
+                const term = document.getElementById('terminal');
+                const pairSection = document.getElementById('pairing-section');
+
                 socket.on('log', (msg) => {
-                    if(logDiv.innerHTML.includes("অপেক্ষা করুন")) logDiv.innerHTML = "";
-                    logDiv.innerHTML += msg + "<br>";
-                    logDiv.scrollTop = logDiv.scrollHeight;
+                    const line = document.createElement('div');
+                    line.innerHTML = "[" + new Date().toLocaleTimeString() + "] " + msg;
+                    term.appendChild(line);
+                    term.scrollTop = term.scrollHeight;
                 });
+
+                socket.on('code', (code) => {
+                    pairSection.innerHTML = \`
+                        <div class="code-box">
+                            <div>WHATSAPP PAIRING CODE</div>
+                            <div class="pairing-code" id="pcode">\${code}</div>
+                            <button class="btn" onclick="copyCode('\${code}')">COPY CODE</button>
+                        </div>
+                    \`;
+                });
+
+                function copyCode(c) {
+                    navigator.clipboard.writeText(c);
+                    alert("Code Copied: " + c);
+                }
             </script>
         </body>
         </html>
     `);
 });
 
+// --- ব্যাকগ্রাউন্ড প্রসেস ---
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    const { version } = await fetchLatestBaileysVersion();
+    io.emit('log', "<span class='status'>Starting WhatsApp engine...</span>");
+    
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+        const { version } = await fetchLatestBaileysVersion();
+        
+        const sock = makeWASocket({
+            version,
+            auth: state,
+            logger: pino({ level: "silent" }),
+            printQRInTerminal: false
+        });
 
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: "silent" }),
-        printQRInTerminal: false
-    });
+        io.emit('log', "System: Connection state initialized.");
 
-    // পেয়ারিং কোড জেনারেশন
-    if (!sock.authState.creds.registered) {
-        io.emit('log', "🔄 পেয়ারিং কোড তৈরি হচ্ছে, অনুগ্রহ করে ১০-২০ সেকেন্ড অপেক্ষা করুন...");
-        await delay(8000); // রেন্ডারের জন্য একটু সময় দেওয়া প্রয়োজন
-        try {
+        if (!sock.authState.creds.registered) {
+            io.emit('log', "System: Device not registered. Requesting Pairing Code...");
+            await delay(10000); // রেন্ডার সার্ভার স্টেবল হতে সময় দেয়
+            
             const code = await sock.requestPairingCode(PHONE_NUMBER);
-            io.emit('log', "<br>**************************************");
-            io.emit('log', "👉 আপনার লগইন কোড: <b>" + code + "</b>");
-            io.emit('log', "**************************************<br>");
-            io.emit('log', "১. WhatsApp > Linked Devices > Link with phone number এ যান।");
-            io.emit('log', "২. উপরের কোডটি ইনপুট দিন।");
-        } catch (err) {
-            io.emit('log', "❌ কোড জেনারেট করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।");
+            io.emit('log', "✅ SUCCESS: Pairing Code Received.");
+            io.emit('code', code); // সরাসরি বড় করে কোড দেখাবে
         }
+
+        sock.ev.on("creds.update", saveCreds);
+
+        sock.ev.on("connection.update", (update) => {
+            const { connection } = update;
+            if (connection === "open") io.emit('log', "<b style='color:white'>✅ BOT CONNECTED & ONLINE</b>");
+            if (connection === "connecting") io.emit('log', "🔄 Connecting to WhatsApp Servers...");
+            if (connection === "close") io.emit('log', "❌ Connection Closed. Retrying...");
+        });
+
+        sock.ev.on("messages.upsert", async ({ messages }) => {
+            const msg = messages[0];
+            if (!msg.message || msg.key.fromMe) return;
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+            io.emit('log', "📩 Incoming: " + text);
+            
+            try {
+                const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                    messages: [{ role: "user", content: text }],
+                    model: "llama3-8b-8192",
+                }, {
+                    headers: { "Authorization": "Bearer " + API_KEY }
+                });
+                await sock.sendMessage(msg.key.remoteJid, { text: res.data.choices[0].message.content });
+                io.emit('log', "📤 AI Replied successfully.");
+            } catch (e) {
+                io.emit('log', "⚠️ AI Error: " + e.message);
+            }
+        });
+
+    } catch (err) {
+        io.emit('log', "<span style='color:red'>Critical Error: " + err.message + "</span>");
     }
-
-    sock.ev.on("creds.update", saveCreds);
-
-    sock.ev.on("connection.update", (u) => {
-        const { connection } = u;
-        if (connection === "open") io.emit('log', "✅ সফলভাবে কানেক্ট হয়েছে!");
-        if (connection === "connecting") io.emit('log', "🔄 সার্ভারের সাথে কানেক্ট হচ্ছে...");
-    });
-
-    sock.ev.on("messages.upsert", async ({ messages }) => {
-        const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
-        const sender = msg.key.remoteJid;
-        
-        io.emit('log', "📩 নতুন মেসেজ এসেছে: " + text);
-        
-        try {
-            const response = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-                messages: [{ role: "user", content: text }],
-                model: "llama3-8b-8192",
-            }, {
-                headers: { "Authorization": "Bearer " + API_KEY }
-            });
-            const reply = response.data.choices[0].message.content;
-            await sock.sendMessage(sender, { text: reply });
-        } catch (e) {
-            io.emit('log', "❌ এআই রিপ্লাই দিতে পারেনি।");
-        }
-    });
 }
 
 server.listen(PORT, () => {
-    console.log("Server running on " + PORT);
+    console.log("Server port: " + PORT);
     startBot();
 });
