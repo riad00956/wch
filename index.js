@@ -6,7 +6,7 @@ const pino = require("pino");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = "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";
-const PHONE_NUMBER = "8801965064030";
+const PHONE_NUMBER = "8801650194635";
 
 let logs = ["System refreshing..."];
 let pairingCode = null;
