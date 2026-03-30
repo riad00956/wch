@@ -1,17 +1,23 @@
 {
-  "name": "wa-ai-agent-final",
-  "version": "1.1.0",
+  "name": "wa-ai-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp AI Bot using Baileys and Groq API",
   "main": "index.js",
-  "dependencies": {
-    "@whiskeysockets/baileys": "latest",
-    "@adiwajshing/keyed-db": "latest",
-    "pino": "latest",
-    "express": "latest",
-    "axios": "latest",
-    "dotenv": "latest",
-    "fs-extra": "latest"
-  },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": ["whatsapp", "bot", "baileys", "groq", "ai"],
+  "author": "Your Name",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.0",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pino": "^9.3.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
   }
 }
