@@ -4,7 +4,6 @@ const http = require("http");
 const { Server } = require("socket.io");
 const axios = require("axios");
 const pino = require("pino");
-const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
@@ -14,24 +13,21 @@ const PORT = process.env.PORT || 3000;
 const API_KEY = "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";
 const PHONE_NUMBER = "8801965064030";
 
-// সেশন ফোল্ডার নিশ্চিত করা
-if (!fs.existsSync('./auth_info')) {
-    fs.mkdirSync('./auth_info');
-}
-
+// ওয়েব ইন্টারফেস
 app.get("/", (req, res) => {
     res.send(`
         <html>
-        <head><title>Terminal</title><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;}</style></head>
+        <head><title>Terminal</title><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;} #logs{height:70vh;overflow-y:auto;border:1px solid #333;padding:10px;background:#111;word-break:break-all;}</style></head>
         <body>
-            <h3>🚀 AI Agent Live Terminal</h3>
-            <div id="logs" style="white-space:pre-wrap; border:1px solid #333; height:70vh; overflow-y:scroll; padding:10px; background:#111;"></div>
+            <h3>🚀 AI Agent Terminal (Live)</h3>
+            <div id="logs">অপেক্ষা করুন, সেশন শুরু হচ্ছে...</div>
             <script src="/socket.io/socket.io.js"></script>
             <script>
                 const socket = io();
                 const logDiv = document.getElementById('logs');
                 socket.on('log', (msg) => {
-                    logDiv.innerHTML += msg + "\\n";
+                    if(logDiv.innerHTML.includes("অপেক্ষা করুন")) logDiv.innerHTML = "";
+                    logDiv.innerHTML += msg + "<br>";
                     logDiv.scrollTop = logDiv.scrollHeight;
                 });
             </script>
@@ -40,22 +36,8 @@ app.get("/", (req, res) => {
     `);
 });
 
-async function getAIReply(userMessage) {
-    try {
-        const response = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-            messages: [{ role: "user", content: userMessage }],
-            model: "llama3-8b-8192",
-        }, {
-            headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" }
-        });
-        return response.data.choices[0].message.content;
-    } catch (e) {
-        return "AI is currently busy.";
-    }
-}
-
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -65,38 +47,54 @@ async function startBot() {
         printQRInTerminal: false
     });
 
+    // পেয়ারিং কোড জেনারেশন
     if (!sock.authState.creds.registered) {
-        // রেন্ডারে কোড জেনারেশনে একটু দেরি করা ভালো
-        await delay(5000);
-        const code = await sock.requestPairingCode(PHONE_NUMBER);
-        io.emit('log', "\n--------------------------------------");
-        io.emit('log', "YOUR PAIRING CODE: " + code);
-        io.emit('log', "--------------------------------------\n");
-        console.log("Pairing Code generated: " + code);
+        io.emit('log', "🔄 পেয়ারিং কোড তৈরি হচ্ছে, অনুগ্রহ করে ১০-২০ সেকেন্ড অপেক্ষা করুন...");
+        await delay(8000); // রেন্ডারের জন্য একটু সময় দেওয়া প্রয়োজন
+        try {
+            const code = await sock.requestPairingCode(PHONE_NUMBER);
+            io.emit('log', "<br>**************************************");
+            io.emit('log', "👉 আপনার লগইন কোড: <b>" + code + "</b>");
+            io.emit('log', "**************************************<br>");
+            io.emit('log', "১. WhatsApp > Linked Devices > Link with phone number এ যান।");
+            io.emit('log', "২. উপরের কোডটি ইনপুট দিন।");
+        } catch (err) {
+            io.emit('log', "❌ কোড জেনারেট করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।");
+        }
     }
 
     sock.ev.on("creds.update", saveCreds);
+
+    sock.ev.on("connection.update", (u) => {
+        const { connection } = u;
+        if (connection === "open") io.emit('log', "✅ সফলভাবে কানেক্ট হয়েছে!");
+        if (connection === "connecting") io.emit('log', "🔄 সার্ভারের সাথে কানেক্ট হচ্ছে...");
+    });
 
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message || msg.key.fromMe) return;
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         const sender = msg.key.remoteJid;
-        io.emit('log', "📩 New Message: " + text);
-        const aiReply = await getAIReply(text);
-        await sock.sendMessage(sender, { text: aiReply });
-    });
-
-    sock.ev.on("connection.update", (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === "open") io.emit('log', "✅ Connected!");
-        if (connection === "connecting") io.emit('log', "🔄 Connecting...");
+        
+        io.emit('log', "📩 নতুন মেসেজ এসেছে: " + text);
+        
+        try {
+            const response = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                messages: [{ role: "user", content: text }],
+                model: "llama3-8b-8192",
+            }, {
+                headers: { "Authorization": "Bearer " + API_KEY }
+            });
+            const reply = response.data.choices[0].message.content;
+            await sock.sendMessage(sender, { text: reply });
+        } catch (e) {
+            io.emit('log', "❌ এআই রিপ্লাই দিতে পারেনি।");
+        }
     });
 }
 
-// সার্ভার আগে স্টার্ট হবে যাতে Render "Bad Gateway" না দেয়
 server.listen(PORT, () => {
-    console.log("Server is listening on port " + PORT);
-    io.emit('log', "Server started. Waiting for WhatsApp...");
+    console.log("Server running on " + PORT);
     startBot();
 });
