@@ -1,0 +1,16 @@
+{
+  "name": "wa-ai-agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "pino": "latest",
+    "express": "latest",
+    "socket.io": "latest",
+    "axios": "latest",
+    "dotenv": "latest"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
