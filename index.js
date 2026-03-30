@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const express = require("express");
 const axios = require("axios");
@@ -5,8 +6,8 @@ const pino = require("pino");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const API_KEY = "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";
-const PHONE_NUMBER = "8801650194635";
+const API_KEY = process.env.GROQ_API_KEY;
+const PHONE_NUMBER = process.env.BOT_NUMBER;
 
 let logs = ["System refreshing..."];
 let pairingCode = null;
@@ -30,7 +31,6 @@ app.get("/", (req, res) => {
 });
 
 async function startBot() {
-    // সেশন পাথ নিশ্চিত করা
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
     
@@ -44,7 +44,7 @@ async function startBot() {
 
     if (!sock.authState.creds.registered) {
         logs.push("Requesting new pairing code...");
-        await delay(8000); // রেন্ডারকে সময় দিন
+        await delay(8000);
         try {
             pairingCode = await sock.requestPairingCode(PHONE_NUMBER);
             logs.push("✅ New Code generated: " + pairingCode);
