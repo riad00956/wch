@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, delay } = require("@whiskeysockets/baile_ys");
+const { default: makeWASocket, useMultiFileAuthState, delay } = require("@whiskeysockets/baileys");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
